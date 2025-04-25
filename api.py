@@ -28,6 +28,7 @@ class Api:
         self.proxies=proxies
         self.specificID=specificID
         self.headers = {
+            "Content-Type": "application/json",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             "Referer":"https://show.bilibili.com/",
             "Origin":"https://show.bilibili.com/",
@@ -268,7 +269,8 @@ class Api:
             'newRisk': 'true',
             'requestSource': 'neul-next'
         }
-        payload = urlencode(payload)
+        # payload = urlencode(payload)
+        payload = json.dumps(payload)
         data = self._http(url,True,payload)
         
         # R.I.P. 旧滑块验证
@@ -442,7 +444,7 @@ class Api:
                     "again": 1
                 }
         timestr = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time())) + ' (LT)'
-        data = self._http(url,True,urlencode(payload).replace("%27true%27","true").replace("%27","%22"))
+        data = self._http(url,True,json.dumps(payload))
         if data:
             if data["errno"] == 0:
                 if self.checkOrder(data["data"]["token"],data["data"]["orderId"]):
