@@ -545,7 +545,7 @@ class Api:
 
     def menu(self,mtype,data=None):
         if mtype == "GET_SHOW":
-            i = input("请输入购票链接并按回车继续 格式例如 https://show.bilibili.com/platform/detail.html?id=73711\n>>> ").strip()
+            i = input("请输入购票链接并按回车继续 格式例如 https://show.bilibili.com/platform/detail.html?id=100596\n>>> ").strip()
             if "bilibili" not in i or "id" not in i:
                 self.error_handle("网址格式错误")
             return i
