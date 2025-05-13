@@ -446,6 +446,7 @@ class Api:
         timestr = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time())) + ' (LT)'
         data = self._http(url,True,json.dumps(payload))
         if data:
+            print(data);
             if data["errno"] == 0:
                 if self.checkOrder(data["data"]["token"],data["data"]["orderId"]):
                     _ts = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time()))
@@ -538,14 +539,15 @@ class Api:
             return 0
 
     def error_handle(self,msg):
-        self.tray_notify("发生错误", msg, "./ico/failed.ico", timeout=120)
+        # self.tray_notify("发生错误", msg, "./ico/failed.ico", timeout=120)
         print(msg)
         os.system("pause")
         sys.exit(0)
 
     def menu(self,mtype,data=None):
         if mtype == "GET_SHOW":
-            i = input("请输入购票链接并按回车继续 格式例如 https://show.bilibili.com/platform/detail.html?id=100596\n>>> ").strip()
+            i = "https://show.bilibili.com/platform/detail.html?id=100596"
+            i = input("请输入购票链接并按回车继续,默认为CP31\n 格式例如 https://show.bilibili.com/platform/detail.html?id=100596\n>>> ").strip()
             if "bilibili" not in i or "id" not in i:
                 self.error_handle("网址格式错误")
             return i

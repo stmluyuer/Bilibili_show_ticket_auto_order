@@ -14,6 +14,7 @@ specificID = None if a[1].split("=")[1].strip() == "None" else a[1].split("=")[1
 sleep = eval(a[2].split("=")[1].strip())
 token = None if a[3].split("=")[1].strip() == "None" else a[3].split("=")[1].strip()
 phone = None if a[4].split("=")[1].strip() == "None" else a[4].split("=")[1].strip()
+specificID = input("请输入需要的用户id 为空则默认第一个\n>>> ").strip()
 
 if __name__ == '__main__':
 	if not os.path.exists("url"):
