@@ -7,18 +7,15 @@ import os
 import time
 import re
 import json
-import sys
+import random
+import secrets
 import http.cookies
 import qrcode
 import bili_ticket_gt_python
-import ntplib
 from time import sleep
-from urllib import request
-from urllib.request import Request as Reqtype
 from urllib.parse import urlencode
+import requests
 from plyer import notification as trayNotify
-
-
 
 class Api:
     """
@@ -28,8 +25,8 @@ class Api:
         self.proxies=proxies
         self.specificID=specificID
         self.headers = {
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            # "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
             "Referer":"https://show.bilibili.com/",
             "Origin":"https://show.bilibili.com/",
             "Pregma":"no-cache",
@@ -38,7 +35,7 @@ class Api:
             "Sec-Fetch-Mode":"navigate",
             "Sec-Fetch-User":"?1",
             "Sec-Fetch-Dest":"document",
-            "Cookie":"a=b;",
+            "Cookie":"",
             "Accept": "*/*",
             "Accept-Language": "zh-CN,zh;q=0.9",
             "Accept-Encoding": "",
@@ -46,6 +43,7 @@ class Api:
         }
         self.sleepTime = sleepTime
         self.token = token
+        self.hotProject = False
         self.start_time = time.time()
         self.user_data = {}
         self.user_data["specificID"] = specificID
@@ -58,7 +56,9 @@ class Api:
         self.userCountLimit = ""
         self.selectedScreen = 0
         self.selectedTicket = 0
+        self.expressFee = 0
         self.validatePhoneNum = str(phone) if phone else str()
+        self.deviceFingerprint = secrets.token_hex(16)
         # ALL_USER_DATA_LIST = [""]
 
     def load_cookie(self):
@@ -88,34 +88,59 @@ class Api:
                 j = j[list(j.keys())[0]]
                 self.user_data["username"],self.headers["Cookie"] = j[0],j[1]
         print("您登录的账号UID为: ",self.user_data["username"])
+        self.buvid3, self.buvid4 = self.buvid3_gen()
+        self.headers['Cookie'] += "buvid3={}; buvid4={}; ".format(self.buvid3,self.buvid4)
 
-            
-    def _http(self,url,j=False,data=None,raw=False):
+    def _http(self,url,j=False,data=None,raw=False,json_data=None):
         data = data.encode() if type(data) == type("") else data
         try:
             if self.proxies and data:
-                opener = request.build_opener(request.ProxyHandler({'http':self.proxies,'https':self.proxies}))
-                res = opener.open(Reqtype(url,headers=self.headers,method="POST",data=data),timeout=120)
+                # opener = request.build_opener(request.ProxyHandler({'http':self.proxies,'https':self.proxies}))
+                # res = opener.open(Reqtype(url,headers=self.headers,method="POST",data=data),timeout=120)
+                res = requests.post(url,headers=self.headers,data=data,proxies={'http':self.proxies,'https':self.proxies},timeout=120)
+            elif self.proxies and json_data:
+                # opener = request.build_opener(request.ProxyHandler({'http':self.proxies,'https':self.proxies}))
+                # res = opener.open(Reqtype(url,headers=self.headers,method="POST",json=json),timeout=120)
+                res = requests.post(url,headers=self.headers,json=json_data,proxies={'http':self.proxies,'https':self.proxies},timeout=120)
             elif self.proxies and not data:
-                opener = request.build_opener(request.ProxyHandler({'http':self.proxies,'https':self.proxies}))
-                res = opener.open(Reqtype(url,headers=self.headers,method="GET"),timeout=120)
+                # opener = request.build_opener(request.ProxyHandler({'http':self.proxies,'https':self.proxies}))
+                # res = opener.open(Reqtype(url,headers=self.headers,method="GET"),timeout=120)
+                res = requests.get(url,headers=self.headers,proxies={'http':self.proxies,'https':self.proxies},timeout=120)
             elif data and not self.proxies:
-                res = request.urlopen(Reqtype(url,headers=self.headers,method="POST",data=data),timeout=120)
+                # res = request.urlopen(Reqtype(url,headers=self.headers,method="POST",data=data),timeout=120)
+                res = requests.post(url,headers=self.headers,data=data,timeout=120)
+            elif json_data and not self.proxies:
+                # res = request.urlopen(Reqtype(url,headers=self.headers,method="POST",json=json),timeout=120)
+                res = requests.post(url,headers=self.headers,json=json_data,timeout=120)
             else:
-                res = request.urlopen(Reqtype(url,headers=self.headers,method="GET"),timeout=120)
+                # res = request.urlopen(Reqtype(url,headers=self.headers,method="GET"),timeout=120)
+                res = requests.get(url,headers=self.headers,timeout=120)
         except Exception as e:
             print("请求超时 请检查网络")
             print(e)
             # self.error_handle("ip可能被风控。请求地址: " + url)
         else:
-            if res.code != 200:
-                self.error_handle("ip可能被风控，请求地址: " + url)
+            if res.status_code == 429:
+                print("请求过多 " + url)
+                return
+            if res.status_code == 412:
+                self.error_handle("请求已被哔哩哔哩安全控制策略拒绝。(" + str(res.status_code) + "): " + url)
+            elif res.status_code != 200:
+                print("--------------------")
+                print(res.text)
+                print("--------------------")
+                self.error_handle("请求出现错误(" + str(res.status_code) + "): " + url + " 报文请参考执行窗口")
             if j:
-                return json.loads(res.read().decode("utf-8","ignore"))
+                return res.json()
             elif raw:
                 return res
             else:
-                return res.read().decode("utf-8","ignore")
+                return res.text
+
+    def buvid3_gen(self):
+        url = "https://api.bilibili.com/x/frontend/finger/spi"
+        resp = self._http(url,True)
+        return resp["data"]["b_3"], resp["data"]["b_4"]
 
     def getCSRF(self):
         cookie = http.cookies.BaseCookie()
@@ -135,7 +160,9 @@ class Api:
             return 1
         # print(self.menu("GET_ORDER_IF",data["data"]))
         self.setAuthType(data)
-
+        self.hotProject = data["data"]["hotProject"]
+        if data["data"]["pick_seat"] == 1:
+            self.error_handle("程序不支持需要选座的演出，请前往会员购手动操作。")
         # print(self.user_data["auth_type"])
         self.user_data["screen_id"],self.user_data["sku_id"],self.user_data["pay_money"],self.userCountLimit,self.deliveryType = self.menu("GET_ORDER_IF",data["data"])
         if(self.deliveryType != 1): # 临时判断法，其他的type不知道只指向什么
@@ -144,19 +171,10 @@ class Api:
             fa = a["prov"]+a["city"]+a["area"]+a["addr"]
             self.user_data["deliver_info"] = {}
             self.user_data["deliver_info"]["name"],self.user_data["deliver_info"]["tel"],self.user_data["deliver_info"]["addr_id"],self.user_data["deliver_info"]["addr"] = a["name"],a["phone"],a["id"],fa
-
+        self.sale_start = data["data"]["screen_list"][self.selectedScreen]["ticket_list"][self.selectedTicket]['saleStart']
         # print("订单信息获取成功")
     
-    def getExpressFee(self):
-        url = "https://show.bilibili.com/api/ticket/project/get?version=134&id=" + self.user_data["project_id"] + "&project_id="+ self.user_data["project_id"]
-        data = self._http(url,True)
-        if data:
-            if not data["data"]:
-                print(data)
-                return 1
-        else:
-            return 0
-        e = data["data"]["express_fee"]
+    def getExpressFee(self, e):
         if(e == -1 or e == -2):
             return 0
         return e
@@ -254,6 +272,13 @@ class Api:
             self.error_handle('请在配置文件中预留哔哩哔哩账号绑定的手机号。')
 
     def tokenGet(self):
+        time_s = self.sale_start
+        time_x = time.time()
+        if int(time_x) < (time_s+3):
+            print("未开票，正在等待 开票时间:", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time_s)), "请求发起时间:", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time_x)))
+            for i in range(time_s - int(time_x) - 1, 0, -1):
+                print("\r剩余时间：{}s".format(i), end="", flush=True)
+                time.sleep(1)
         # 获取token
         url = "https://show.bilibili.com/api/ticket/order/prepare?project_id=" + self.user_data["project_id"]
         payload = {
@@ -270,8 +295,7 @@ class Api:
             'requestSource': 'neul-next'
         }
         # payload = urlencode(payload)
-        payload = json.dumps(payload)
-        data = self._http(url,True,payload)
+        data = self._http(url,True,json_data=payload)
         
         # R.I.P. 旧滑块验证
 
@@ -299,8 +323,8 @@ class Api:
             if data["errno"] == -401:
                 print("=== 发现验证 ===")
                 __url = "https://api.bilibili.com/x/gaia-vgate/v1/register"
-                __payload = urlencode(data["data"]["ga_data"]["riskParams"])
-                __data = self._http(__url,True,__payload)
+                __payload = data["data"]["ga_data"]["riskParams"]
+                __data = self._http(__url,True,json_data=__payload)
                 if __data.get('data').get('type')=='geetest':
                     gt = __data["data"]["geetest"]["gt"]
                     challenge = __data["data"]["geetest"]["challenge"]
@@ -323,7 +347,7 @@ class Api:
                 else:
                     self.error_handle("验证码类别无法辨别，请重启程序后重试")
                 _url = "https://api.bilibili.com/x/gaia-vgate/v1/validate"
-                _data = self._http(_url,True,urlencode(_payload))
+                _data = self._http(_url,True,json_data=_payload)
                 if(_data["code"]==-111):
                     self.error_handle("csrf校验失败")
                 if _data["data"]["is_valid"] == 1:
@@ -336,21 +360,7 @@ class Api:
                 else:
                     self.error_handle("验证失败。")
             elif data["errno"] == 100041:
-                # print("指定展览/演出未开票或账号异常")
-                url_ = "https://show.bilibili.com/api/ticket/project/getV2?version=134&id=" + self.user_data["project_id"] + "&project_id="+ self.user_data["project_id"] + "&requestSource=pc-new"
-                data_ = self._http(url_,True)
-                time_s = data_["data"]["screen_list"][self.selectedScreen]["ticket_list"][self.selectedTicket]['saleStart']
-                # time_x = time.time()
-                ntp_resp = ntplib.NTPClient().request('ntp.aliyun.com')
-                time_x = ntp_resp.tx_time - ntp_resp.offset
-                # if int(time.time()) < time_s:
-                if int(time_x) < (time_s-1):
-                    print("未开票，正在等待 开票时间:", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time_s)), "请求发起时间:", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time_x)))
-                    for i in range(time_s - int(time_x) - 1, 0, -1):
-                        print("\r剩余时间：{}s".format(i), end="", flush=True)
-                        time.sleep(1)
-                else:
-                    self.error_handle("账号状态异常，请检查您的哔哩哔哩账号")
+                self.error_handle("账号状态异常，请检查您的哔哩哔哩账号")
             elif data['errno'] == 100098:
                 self.error_handle('当前票种/展览/演出设定状态为为哔哩哔哩大会员限定购买，如已是大会员请确认大会员权能是否冻结')
             elif data['errno'] == 100039:
@@ -358,10 +368,13 @@ class Api:
             else:
                 if not data["data"]:
                     timestr = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time())) + ":"
-                    print(timestr,"失败信息: ",data["code"],data["msg"])
+                    print(timestr,"失败信息: ",data["errno"],data["msg"])
                     return 1
                 if data["data"]["token"]:
                     self.user_data["token"] = data["data"]["token"]
+                    if self.hotProject:
+                        self.user_data['ctoken'] = ""   # 没扒完
+                        self.user_data['ptoken'] = data["data"]["ptoken"]
         return 0
         
     def orderCreate(self):
@@ -377,74 +390,41 @@ class Api:
 
         # 创建订单
         # url = "https://show.bilibili.com/api/ticket/order/createV2?project_id=" + config["projectId"]
-        url = "https://show.bilibili.com/api/ticket/order/createV2?project_id=" + self.user_data["project_id"]
-
-        try:
-            self.user_data["deliver_info"]
-        except KeyError:
-            if self.user_data["auth_type"] == 0:
-                payload = {
-                    "buyer": self.user_data["buyer_name"],
-                    "tel": self.user_data["buyer_phone"],
-                    "count": self.user_data["user_count"],
-                    "deviceId": "",
-                    "order_type": 1,
-                    "pay_money": int(self.user_data["pay_money"]) * int(self.user_data["user_count"]),
-                    "project_id": self.user_data["project_id"],
-                    "screen_id": self.user_data["screen_id"],
-                    "sku_id": self.user_data["sku_id"],
-                    "timestamp": int(round(time.time() * 1000)),
-                    "token": self.user_data["token"],
-                    "again": 1,
-                }
-            else:
-                payload = {
-                    "buyer_info": self.user_data["buyer"],
-                    "count": self.user_data["user_count"],
-                    "deviceId": "",
-                    "order_type": 1,
-                    "pay_money": int(self.user_data["pay_money"]) * int(self.user_data["user_count"]),
-                    "project_id": self.user_data["project_id"],
-                    "screen_id": self.user_data["screen_id"],
-                    "sku_id": self.user_data["sku_id"],
-                    "timestamp": int(round(time.time() * 1000)),
-                    "token": self.user_data["token"],
-                    "again": 1
-                }
+        url = "https://show.bilibili.com/api/ticket/order/createV2?project_id={}".format(self.user_data["project_id"])
+        payload = {
+            "count": int(self.user_data["user_count"]),
+            "order_type": 1,
+            "pay_money": int(self.user_data["pay_money"]) * int(self.user_data["user_count"]) + int(self.expressFee),
+            "project_id": int(self.user_data["project_id"]),
+            "screen_id": self.user_data["screen_id"],
+            "sku_id": self.user_data["sku_id"],
+            "timestamp": int(round(time.time() * 1000)),
+            "token": self.user_data["token"],
+            "deviceId": self.deviceFingerprint,
+            "requestSource": "neul-next",
+            "newRisk": True,                # wtf is this
+            "clickPosition": {              # wtf is this either
+                "x": random.randrange(200,800),
+                "y": random.randrange(200,800),
+                "origin": (int(time.time()) - random.randrange(1,5)) * 1000,
+                "now": int(time.time()) * 1000
+            },
+        }
+        if self.user_data["auth_type"] == 0:
+            payload['buyer'] = self.user_data["buyer_name"]
+            payload['tel'] = self.user_data["buyer_phone"]
         else:
-            if self.user_data["auth_type"] == 0:
-                payload = {
-                    "buyer": self.user_data["buyer_name"],
-                    "tel": self.user_data["buyer_phone"],
-                    "count": self.user_data["user_count"],
-                    "deviceId": "",
-                    "order_type": 1,
-                    "pay_money": int(self.user_data["pay_money"]) * int(self.user_data["user_count"]) + self.getExpressFee(),
-                    "project_id": self.user_data["project_id"],
-                    "screen_id": self.user_data["screen_id"],
-                    "sku_id": self.user_data["sku_id"],
-                    "timestamp": int(round(time.time() * 1000)),
-                    "token": self.user_data["token"],
-                    "deliver_info": json.dumps(self.user_data["deliver_info"],ensure_ascii=0),
-                    "again": 1
-                }
-            else:
-                payload = {
-                    "buyer_info": self.user_data["buyer"],
-                    "count": self.user_data["user_count"],
-                    "deviceId": "",
-                    "order_type": 1,
-                    "pay_money": int(self.user_data["pay_money"]) * int(self.user_data["user_count"]) + self.getExpressFee(),
-                    "project_id": self.user_data["project_id"],
-                    "screen_id": self.user_data["screen_id"],
-                    "sku_id": self.user_data["sku_id"],
-                    "timestamp": int(round(time.time() * 1000)),
-                    "token": self.user_data["token"],
-                    "deliver_info": json.dumps(self.user_data["deliver_info"],ensure_ascii=0),
-                    "again": 1
-                }
+            payload['buyer_info'] = json.dumps(self.user_data["buyer"]),
+        if self.deliveryType != 1:
+            payload['deliver_info'] = json.dumps(self.user_data["deliver_info"],ensure_ascii=0)
+        if self.hotProject:
+            payload["ptoken"] = self.user_data["ptoken"]
+            # payload["ctoken"] = ""
+            payload["orderCreateUrl"] = "https://show.bilibili.com/api/ticket/order/createV2"
+            url += "&ptoken={}".format(self.user_data["ptoken"])
         timestr = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time())) + ' (LT)'
-        data = self._http(url,True,json.dumps(payload))
+        self.headers['X-Risk-Header'] = "platform/pc uid/{} deviceId/{}".format(self.user_data['username'],self.buvid3)
+        data = self._http(url,True,json_data=payload)
         if data:
             print(data);
             if data["errno"] == 0:
@@ -455,11 +435,12 @@ class Api:
                     # + thisBuyerInfo + self.selectedTicketInfo + "\n"
                     # Add buyer info
                     if "buyer_info" in payload:
-                        for i in range(0, len(payload["buyer_info"])):
+                        buyer_info = json.loads(payload["buyer_info"])
+                        for i in range(0, len(buyer_info)):
                             if self.user_data["auth_type"] == 0:
-                                trayNotifyMessage += ['buyer_info'][i][0] + " "
+                                trayNotifyMessage += buyer_info[i][0] + " "
                             else:
-                                trayNotifyMessage += payload['buyer_info'][i]["name"] + " "
+                                trayNotifyMessage += buyer_info[i]["name"] + " "
                     elif "buyer" in payload:
                         trayNotifyMessage += payload["buyer"]
                     trayNotifyMessage += "\n" + self.selectedTicketInfo
@@ -520,13 +501,31 @@ class Api:
         url = "https://show.bilibili.com/api/ticket/order/createstatus?token="+_token+"&timestamp="+str(int(round(time.time() * 1000)))+"&project_id="+self.user_data["project_id"]+"&orderId="+str(_orderId)
         data = self._http(url,True)
         if(data["errno"] == 0):
-            _qrcode = data["data"]["payParam"]["code_url"]
+            _qrcode = str()
+            try:
+                _qrcode = data["data"]["payParam"]["code_url"]
+            except:
+                try:
+                    payParam_backup = "https://show.bilibili.com/api/ticket/order/getPayParam?order_id=" + str(_orderId)
+                    _data = self._http(payParam_backup, True)
+                    if _data["errno"] == 0:
+                        _qrcode = data["data"]["code_url"]
+                    else:
+                        raise ValueError
+                except:
+                    print()
+                    print("!!! 二维码获取失败，请手动从会员购订单管理页支付 !!!")
+                    print()
+                    return 1
+            print()
             print("请使用微信/QQ/支付宝扫描二维码完成支付")
             print("请使用微信/QQ/支付宝扫描二维码完成支付")
-            print("请使用微信/QQ/支付宝扫描二维码完成支付\n")
+            print("请使用微信/QQ/支付宝扫描二维码完成支付")
+            print()
             print(f"若二维码显示异常请扫描程序目录下 ticket_{str(_orderId)}.png 图片文件的二维码")
             print(f"若二维码显示异常请扫描程序目录下 ticket_{str(_orderId)}.png 图片文件的二维码")
             print(f"若二维码显示异常请扫描程序目录下 ticket_{str(_orderId)}.png 图片文件的二维码")
+            print()
             _ts = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time()))
             qr_gen = qrcode.QRCode()
             qr_gen.add_data(_qrcode)
@@ -534,6 +533,7 @@ class Api:
             qr_gen.make_image().save(f'ticket_{str(_orderId)}.png')
             # print(qrcode)
             print(f'\n二维码生成时间：{_ts}')
+            print()
             return 1
         else:
             return 0
@@ -541,8 +541,8 @@ class Api:
     def error_handle(self,msg):
         # self.tray_notify("发生错误", msg, "./ico/failed.ico", timeout=120)
         print(msg)
-        os.system("pause")
-        sys.exit(0)
+        input("按下Enter / Return键继续……")
+        os._exit(0)
 
     def menu(self,mtype,data=None):
         if mtype == "GET_SHOW":
@@ -588,6 +588,7 @@ class Api:
             print("\n已选择：", self.selectedTicketInfo)
             self.selectedScreen = date
             self.selectedTicket = choice
+            self.expressFee = self.getExpressFee(data["screen_list"][date]['express_fee'])
             return data["screen_list"][date]["id"],data["screen_list"][date]["ticket_list"][choice]["id"],data["screen_list"][date]["ticket_list"][choice]["price"],data["screen_list"][date]["ticket_list"][choice]["static_limit"]["num"],data["screen_list"][date]['delivery_type']
         elif mtype == "GET_ID_INFO":
             if not data:
@@ -707,8 +708,9 @@ class Api:
                 # continue
             if self.orderCreate():
                 # open("url","w").write("https://show.bilibili.com/orderlist")
-                os.system("pause")
+                input("按下Enter / Return键继续……")
                 break
+        os._exit(0)
 
     def test(self):
         self.load_cookie()
